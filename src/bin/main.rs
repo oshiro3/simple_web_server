@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -28,14 +29,15 @@ fn handle_connection(mut stream: TcpStream) {
     stream.read(&mut buffer).unwrap();
     let current = env::current_dir().unwrap();
     let static_dir = current.join("statics").canonicalize().unwrap();
-
     println!("static_dir: {}", static_dir.to_str().unwrap());
 
     let buffer_str = str::from_utf8(&buffer).unwrap();
 
     let mut splitter = buffer_str.splitn(2, "\r\n");
     let status_line = splitter.next().unwrap();
+    let request_header = splitter.next().unwrap();
     println!("status_line: {}", status_line);
+    println!("request_header: {}", request_header);
     let mut splitter = status_line.split(" ");
     let method = splitter.next().unwrap();
     let path = Path::new(splitter.next().unwrap());
@@ -47,7 +49,7 @@ fn handle_connection(mut stream: TcpStream) {
     println!("fname exists?: {}", fname.exists());
     let mut response = String::new();
     if fname.exists() {
-        response = build_response(fname.to_str().unwrap(), "HTTP/1.1 200 OK\r\n\r\n");
+        response = build_response(fname.to_str().unwrap(), "HTTP/1.1 200 OK\r\n");
     } else {
         response = build_response(
             static_dir.join("404.html").to_str().unwrap(),
@@ -63,9 +65,19 @@ fn handle_connection(mut stream: TcpStream) {
 }
 
 fn build_response(fname: &str, header: &str) -> String {
+    let mut mime_types = HashMap::new();
+    mime_types.insert("html", "text/html");
+    mime_types.insert("css", "text/css");
+    mime_types.insert("png", "image/png");
+    mime_types.insert("jpg", "image/jpg");
+
     let mut file = File::open(fname).unwrap();
     let mut contents = String::new();
+    let ext = Path::new(fname).extension().unwrap();
+    let content_type = mime_types.get(ext.to_str().unwrap());
+    println!("content_type: {}", content_type.unwrap());
+    let response_header = format!("Content-Type: {}\r\n\r\n", content_type.unwrap());
     file.read_to_string(&mut contents).unwrap();
 
-    format!("{}{}", header, contents)
+    format!("{}{}{}", header, response_header, contents)
 }

@@ -1,3 +1,4 @@
+use chunked_transfer::Encoder;
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
@@ -39,45 +40,55 @@ fn handle_connection(mut stream: TcpStream) {
     println!("status_line: {}", status_line);
     println!("request_header: {}", request_header);
     let mut splitter = status_line.split(" ");
-    let method = splitter.next().unwrap();
+    let _method = splitter.next().unwrap();
     let path = Path::new(splitter.next().unwrap());
-    let http_version = splitter.next().unwrap();
+    let _http_version = splitter.next().unwrap();
     let relative_path = path.strip_prefix("/").unwrap();
     println!("relative path: {}", relative_path.to_str().unwrap());
     let fname = static_dir.join(relative_path);
     println!("fname: {}", fname.to_str().unwrap());
     println!("fname exists?: {}", fname.exists());
-    let mut response = String::new();
     if fname.exists() {
-        response = build_response(fname.to_str().unwrap(), "HTTP/1.1 200 OK\r\n");
+        let response = build_response_header(fname.to_str().unwrap(), "HTTP/1.1 200 OK\r\n");
+        stream.write(response.as_bytes()).unwrap();
+        let ext = Path::new(&fname).extension().unwrap();
+        let mut buf = Vec::new();
+        let mut file = File::open(&fname).unwrap();
+        file.read_to_end(&mut buf).unwrap();
+
+        if ext == "jpg" || ext == "png" {
+            let mut encoded = Vec::new();
+            {
+                let mut encoder = Encoder::with_chunks_size(&mut encoded, 8);
+                encoder.write_all(&buf).unwrap();
+            }
+        }
+        stream.write(&buf).unwrap();
     } else {
-        response = build_response(
+        let response = build_response_header(
             static_dir.join("404.html").to_str().unwrap(),
             "HTTP/1.1 404 NOT FOUND\r\n\r\n",
         );
+        stream.write(response.as_bytes()).unwrap();
     };
 
-    stream.write(response.as_bytes()).unwrap();
     stream.flush().unwrap();
-    println!("Response: {}", response);
 
     println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
 }
 
-fn build_response(fname: &str, header: &str) -> String {
+fn build_response_header(fname: &str, header: &str) -> String {
     let mut mime_types = HashMap::new();
     mime_types.insert("html", "text/html");
     mime_types.insert("css", "text/css");
     mime_types.insert("png", "image/png");
     mime_types.insert("jpg", "image/jpg");
 
-    let mut file = File::open(fname).unwrap();
-    let mut contents = String::new();
     let ext = Path::new(fname).extension().unwrap();
     let content_type = mime_types.get(ext.to_str().unwrap());
     println!("content_type: {}", content_type.unwrap());
-    let response_header = format!("Content-Type: {}\r\n\r\n", content_type.unwrap());
-    file.read_to_string(&mut contents).unwrap();
 
-    format!("{}{}{}", header, response_header, contents)
+    let response_header = format!("Content-Type: {}\r\n\r\n", content_type.unwrap());
+
+    format!("{}{}", header, response_header)
 }

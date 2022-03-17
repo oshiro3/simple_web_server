@@ -25,15 +25,7 @@ fn main() {
     }
 }
 
-fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 1024];
-    stream.read(&mut buffer).unwrap();
-    let current = env::current_dir().unwrap();
-    let static_dir = current.join("statics").canonicalize().unwrap();
-    println!("static_dir: {}", static_dir.to_str().unwrap());
-
-    let buffer_str = str::from_utf8(&buffer).unwrap();
-
+fn parse_request_buffer(buffer_str: &str) -> &Path {
     let mut splitter = buffer_str.splitn(2, "\r\n");
     let status_line = splitter.next().unwrap();
     let request_header = splitter.next().unwrap();
@@ -43,13 +35,27 @@ fn handle_connection(mut stream: TcpStream) {
     let _method = splitter.next().unwrap();
     let path = Path::new(splitter.next().unwrap());
     let _http_version = splitter.next().unwrap();
-    let relative_path = path.strip_prefix("/").unwrap();
-    println!("relative path: {}", relative_path.to_str().unwrap());
+    return path.strip_prefix("/").unwrap();
+}
+
+fn handle_connection(mut stream: TcpStream) {
+    let mut buffer = [0; 1024];
+    stream.read(&mut buffer).unwrap();
+
+    let buffer_str = str::from_utf8(&buffer).unwrap();
+
+    let current = env::current_dir().unwrap();
+    let static_dir = current.join("statics").canonicalize().unwrap();
+    println!("static_dir: {}", static_dir.to_str().unwrap());
+
+    let relative_path = parse_request_buffer(buffer_str);
     let fname = static_dir.join(relative_path);
     println!("fname: {}", fname.to_str().unwrap());
     println!("fname exists?: {}", fname.exists());
+
     if fname.exists() {
         let response = build_response_header(fname.to_str().unwrap(), "HTTP/1.1 200 OK\r\n");
+        println!("hoge2");
         stream.write(response.as_bytes()).unwrap();
         let ext = Path::new(&fname).extension().unwrap();
         let mut buf = Vec::new();
